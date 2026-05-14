@@ -6,6 +6,9 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Health Check
+app.get('/', (req, res) => res.json({ status: 'ok' }));
+
 // ====== ANTHROPIC ======
 app.post('/anthropic', async (req, res) => {
   try {
@@ -24,13 +27,38 @@ app.post('/anthropic', async (req, res) => {
   }
 });
 
-// ====== NOTION ======
+// ====== NOTION — Lesen ======
 app.post('/notion', async (req, res) => {
   try {
     const { databaseId, filter, sorts, page_size } = req.body;
     const response = await axios.post(
       `https://api.notion.com/v1/databases/${databaseId}/query`,
       { filter, sorts, page_size },
+      { headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.NOTION_TOKEN}`,
+        'Notion-Version': '2022-06-28'
+      }}
+    );
+    res.json(response.data);
+  } catch (e) {
+    res.status(500).json({ error: e.response?.data || e.message });
+  }
+});
+
+// ====== NOTION — ToDo erstellen ======
+app.post('/notion-create', async (req, res) => {
+  try {
+    const { databaseId, title } = req.body;
+    const response = await axios.post(
+      'https://api.notion.com/v1/pages',
+      {
+        parent: { database_id: databaseId },
+        properties: {
+          'Task name': { title: [{ text: { content: title } }] },
+          'Status': { status: { name: 'Not started' } }
+        }
+      },
       { headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${process.env.NOTION_TOKEN}`,
@@ -55,9 +83,6 @@ app.get('/news', async (req, res) => {
     res.status(500).json({ error: e.response?.data || e.message });
   }
 });
-
-// Health Check
-app.get('/', (req, res) => res.json({ status: 'ok' }));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server läuft auf Port ${PORT}`));
