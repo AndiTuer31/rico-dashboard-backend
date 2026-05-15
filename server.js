@@ -6,14 +6,34 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ====== UPSTASH REDIS — Token persistent speichern ======
+const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
+const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+async function redisSet(key, value) {
+  await axios.post(`${REDIS_URL}/set/${key}`, { value }, {
+    headers: { Authorization: `Bearer ${REDIS_TOKEN}` }
+  });
+}
+
+async function redisGet(key) {
+  try {
+    const res = await axios.get(`${REDIS_URL}/get/${key}`, {
+      headers: { Authorization: `Bearer ${REDIS_TOKEN}` }
+    });
+    return res.data.result;
+  } catch (e) {
+    return null;
+  }
+}
+
 // Google OAuth Config
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const REDIRECT_URI = 'https://rico-dashboard-backend.onrender.com/google-callback';
 
-// Refresh Token im Memory speichern (bleibt solange Server läuft)
-let storedRefreshToken = null;
-let storedAccessToken = null;
+// Access Token im Memory cachen (wird automatisch erneuert)
+let cachedAccessToken = null;
 let tokenExpiry = null;
 
 // Health Check
@@ -31,7 +51,7 @@ app.get('/google-login', (req, res) => {
   res.redirect(authUrl);
 });
 
-// ====== GOOGLE CALLBACK — Token speichern ======
+// ====== GOOGLE CALLBACK — Token in Redis speichern ======
 app.get('/google-callback', async (req, res) => {
   const { code } = req.query;
   try {
@@ -43,11 +63,14 @@ app.get('/google-callback', async (req, res) => {
       grant_type: 'authorization_code'
     });
 
-    storedRefreshToken = response.data.refresh_token;
-    storedAccessToken = response.data.access_token;
+    // Refresh Token in Redis speichern — überlebt Server-Neustarts!
+    if (response.data.refresh_token) {
+      await redisSet('google_refresh_token', response.data.refresh_token);
+    }
+
+    cachedAccessToken = response.data.access_token;
     tokenExpiry = Date.now() + (response.data.expires_in * 1000);
 
-    // Zurück zur App
     res.redirect('https://rico-dashboard-app.web.app?calendar=connected');
   } catch (e) {
     console.error('Auth Fehler:', e.response?.data || e.message);
@@ -57,29 +80,36 @@ app.get('/google-callback', async (req, res) => {
 
 // ====== ACCESS TOKEN ERNEUERN ======
 async function getValidAccessToken() {
-  // Token noch gültig?
-  if (storedAccessToken && tokenExpiry && Date.now() < tokenExpiry - 60000) {
-    return storedAccessToken;
+  // Cached Token noch gültig?
+  if (cachedAccessToken && tokenExpiry && Date.now() < tokenExpiry - 60000) {
+    return cachedAccessToken;
   }
 
-  // Neu holen mit Refresh Token
-  if (!storedRefreshToken) return null;
+  // Refresh Token aus Redis holen
+  const refreshToken = await redisGet('google_refresh_token');
+  if (!refreshToken) return null;
 
-  const response = await axios.post('https://oauth2.googleapis.com/token', {
-    client_id: GOOGLE_CLIENT_ID,
-    client_secret: GOOGLE_CLIENT_SECRET,
-    refresh_token: storedRefreshToken,
-    grant_type: 'refresh_token'
-  });
+  try {
+    const response = await axios.post('https://oauth2.googleapis.com/token', {
+      client_id: GOOGLE_CLIENT_ID,
+      client_secret: GOOGLE_CLIENT_SECRET,
+      refresh_token: refreshToken,
+      grant_type: 'refresh_token'
+    });
 
-  storedAccessToken = response.data.access_token;
-  tokenExpiry = Date.now() + (response.data.expires_in * 1000);
-  return storedAccessToken;
+    cachedAccessToken = response.data.access_token;
+    tokenExpiry = Date.now() + (response.data.expires_in * 1000);
+    return cachedAccessToken;
+  } catch (e) {
+    console.error('Token Refresh Fehler:', e.response?.data || e.message);
+    return null;
+  }
 }
 
 // ====== CALENDAR STATUS ======
-app.get('/calendar-status', (req, res) => {
-  res.json({ connected: !!storedRefreshToken });
+app.get('/calendar-status', async (req, res) => {
+  const token = await redisGet('google_refresh_token');
+  res.json({ connected: !!token });
 });
 
 // ====== CALENDAR EVENTS LESEN ======
