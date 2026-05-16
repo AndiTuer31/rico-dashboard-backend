@@ -41,7 +41,7 @@ app.get('/google-login', (req, res) => {
     `client_id=${GOOGLE_CLIENT_ID}&` +
     `redirect_uri=${encodeURIComponent(REDIRECT_URI)}&` +
     `response_type=code&` +
-    `scope=${encodeURIComponent('https://www.googleapis.com/auth/calendar')}&` +
+    `scope=${encodeURIComponent('https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly')}&` +
     `access_type=offline&prompt=consent`;
   res.redirect(authUrl);
 });
@@ -215,6 +215,50 @@ app.get('/news', async (req, res) => {
       res.json({ articles });
     } catch (e2) {
       res.status(500).json({ error: e2.message });
+    }
+  }
+});
+
+// ====== GMAIL — Wichtige & Ungelesene Mails ======
+app.get('/gmail-important', async (req, res) => {
+  try {
+    const token = await getValidAccessToken();
+    if (!token) { res.status(401).json({ error: 'Nicht verbunden', needsReauth: true }); return; }
+
+    // Ungelesene + wichtige Mails (max 5)
+    const listRes = await axios.get(
+      'https://gmail.googleapis.com/gmail/v1/users/me/messages?labelIds=IMPORTANT,UNREAD&maxResults=5',
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+
+    const messages = listRes.data.messages || [];
+    if (!messages.length) { res.json({ emails: [] }); return; }
+
+    // Metadaten für jede Mail laden
+    const emails = await Promise.all(messages.map(async (msg) => {
+      const detail = await axios.get(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=metadata&metadataHeaders=Subject,From`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const headers = detail.data.payload?.headers || [];
+      const subject = headers.find(h => h.name === 'Subject')?.value || '(Kein Betreff)';
+      const fromFull = headers.find(h => h.name === 'From')?.value || '';
+      const fromName = fromFull.replace(/<[^>]+>/g, '').trim().replace(/"/g, '') || fromFull.split('@')[0];
+      return {
+        id: msg.id,
+        subject: subject.slice(0, 70),
+        from: fromName.slice(0, 35),
+        snippet: (detail.data.snippet || '').slice(0, 90),
+        url: `https://mail.google.com/mail/#inbox/${msg.id}`
+      };
+    }));
+
+    res.json({ emails });
+  } catch (e) {
+    if (e.response?.status === 403) {
+      res.json({ emails: [], needsReauth: true });
+    } else {
+      res.status(500).json({ error: e.response?.data || e.message });
     }
   }
 });
