@@ -235,15 +235,30 @@ app.get('/news', async (req, res) => {
   }
 });
 
+// ====== GMAIL DEBUG (zum Testen) ======
+app.get('/gmail-debug', async (req, res) => {
+  const token = await getValidAccessToken();
+  if (!token) { res.json({ status: 'no_token', hint: 'Kein gültiger Token — neu einloggen unter /google-login' }); return; }
+  try {
+    const r = await axios.get(
+      'https://gmail.googleapis.com/gmail/v1/users/me/messages?labelIds=IMPORTANT&labelIds=UNREAD&maxResults=1',
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    res.json({ status: 'ok', resultCount: r.data.resultSizeEstimate, messages: r.data.messages?.length || 0 });
+  } catch (e) {
+    res.json({ status: 'error', httpStatus: e.response?.status, error: e.response?.data || e.message });
+  }
+});
+
 // ====== GMAIL — Wichtige & Ungelesene Mails ======
 app.get('/gmail-important', async (req, res) => {
   try {
     const token = await getValidAccessToken();
-    if (!token) { res.status(401).json({ error: 'Nicht verbunden', needsReauth: true }); return; }
+    if (!token) { res.json({ emails: [], needsReauth: true }); return; }
 
-    // Ungelesene + wichtige Mails (max 5)
+    // FIX: labelIds muss wiederholt werden, nicht komma-getrennt
     const listRes = await axios.get(
-      'https://gmail.googleapis.com/gmail/v1/users/me/messages?labelIds=IMPORTANT,UNREAD&maxResults=5',
+      'https://gmail.googleapis.com/gmail/v1/users/me/messages?labelIds=IMPORTANT&labelIds=UNREAD&maxResults=5',
       { headers: { Authorization: `Bearer ${token}` } }
     );
 
@@ -271,8 +286,11 @@ app.get('/gmail-important', async (req, res) => {
 
     res.json({ emails });
   } catch (e) {
-    if (e.response?.status === 403) {
-      res.json({ emails: [], needsReauth: true });
+    console.error('Gmail error:', e.response?.status, JSON.stringify(e.response?.data));
+    // 401 = Token ungültig, 403 = Scope fehlt oder API nicht aktiviert
+    const status = e.response?.status;
+    if (status === 401 || status === 403) {
+      res.json({ emails: [], needsReauth: true, reason: e.response?.data?.error?.message || status });
     } else {
       res.status(500).json({ error: e.response?.data || e.message });
     }
