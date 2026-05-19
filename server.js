@@ -263,5 +263,19 @@ app.get('/gmail-important', async (req, res) => {
   }
 });
 
+// ====== DEBUG (temporär) ======
+app.get('/debug-token', async (req, res) => {
+  const refreshToken = await redisGet('google_refresh_token');
+  const accessToken = await getValidAccessToken();
+  res.json({
+    hasRefreshToken: !!refreshToken,
+    hasAccessToken: !!accessToken,
+    clientIdSet: !!GOOGLE_CLIENT_ID,
+    clientSecretSet: !!GOOGLE_CLIENT_SECRET,
+    redisUrlSet: !!REDIS_URL,
+    redisTokenSet: !!REDIS_TOKEN
+  });
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server läuft auf Port ${PORT}`));
