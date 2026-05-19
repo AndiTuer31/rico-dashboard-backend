@@ -21,14 +21,25 @@ async function redisGet(key) {
     const res = await axios.get(`${REDIS_URL}/get/${key}`, {
       headers: { Authorization: `Bearer ${REDIS_TOKEN}` }
     });
-    const result = res.data.result;
-    // Falls result ein JSON-Objekt mit "value" ist → nur value zurückgeben
+    let result = res.data.result;
+    
+    // Falls result ein String ist der wie JSON aussieht → parsen
+    if (typeof result === 'string' && result.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(result);
+        if (parsed.value) return parsed.value;
+      } catch(e) {}
+    }
+    
+    // Falls result direkt ein Objekt ist
     if (result && typeof result === 'object' && result.value) {
       return result.value;
     }
+    
     return result;
   } catch (e) { return null; }
 }
+
 
 // Google OAuth Config
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
