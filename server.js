@@ -21,7 +21,12 @@ async function redisGet(key) {
     const res = await axios.get(`${REDIS_URL}/get/${key}`, {
       headers: { Authorization: `Bearer ${REDIS_TOKEN}` }
     });
-    return res.data.result;
+    const result = res.data.result;
+    // Falls result ein JSON-Objekt mit "value" ist → nur value zurückgeben
+    if (result && typeof result === 'object' && result.value) {
+      return result.value;
+    }
+    return result;
   } catch (e) { return null; }
 }
 
