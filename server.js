@@ -279,37 +279,7 @@ app.get('/gmail-important', async (req, res) => {
   }
 });
 
-// ====== DEBUG (temporär) ======
-app.get('/debug-token', async (req, res) => {
-  const refreshToken = await redisGet('google_refresh_token');
-  if (!refreshToken) { res.json({ error: 'Kein Refresh Token in Redis' }); return; }
-  
-  try {
-    const response = await axios.post('https://oauth2.googleapis.com/token', {
-      client_id: GOOGLE_CLIENT_ID,
-      client_secret: GOOGLE_CLIENT_SECRET,
-      refresh_token: refreshToken,
-      grant_type: 'refresh_token'
-    });
-    res.json({ success: true, tokenType: response.data.token_type, expiresIn: response.data.expires_in });
-  } catch (e) {
-    res.json({ 
-      error: e.response?.data || e.message,
-      status: e.response?.status
-    });
-  }
-});
 
-
-// ====== DEBUG REDIS ======
-app.get('/debug-redis', async (req, res) => {
-  const refreshToken = await redisGet('google_refresh_token');
-  res.json({ 
-    tokenType: typeof refreshToken,
-    tokenStart: refreshToken ? refreshToken.slice(0, 30) : 'NULL',
-    tokenLength: refreshToken ? refreshToken.length : 0
-  });
-});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server läuft auf Port ${PORT}`));
