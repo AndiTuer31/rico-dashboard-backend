@@ -284,5 +284,21 @@ app.get('/debug-token', async (req, res) => {
   }
 });
 
+
+// ====== DEBUG REDIS ======
+app.get('/debug-redis', async (req, res) => {
+  try {
+    await redisSet('test_key', 'hello');
+    const val = await redisGet('test_key');
+    const refreshToken = await redisGet('google_refresh_token');
+    res.json({ 
+      redisWorking: val === 'hello',
+      refreshTokenValue: refreshToken ? refreshToken.slice(0, 20) + '...' : 'NULL'
+    });
+  } catch(e) {
+    res.json({ error: e.message });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server läuft auf Port ${PORT}`));
